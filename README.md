@@ -4,4 +4,4 @@
 uv run serve.py
 ```
 
-Edit `config.toml` to change settings.
+Edit `config.py` to change settings.

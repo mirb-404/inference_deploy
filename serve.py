@@ -1,6 +1,7 @@
-"""Start llama-server from config.toml and expose it through a Cloudflare quick tunnel."""
+"""Start llama-server from config.py and expose it through a Cloudflare quick tunnel."""
 
 import argparse
+import importlib.util
 import os
 import platform
 import re
@@ -11,7 +12,6 @@ import subprocess
 import sys
 import threading
 import time
-import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -20,6 +20,20 @@ ROOT = Path(__file__).resolve().parent
 BIN_DIR = ROOT / "bin"
 TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 CLOUDFLARED_RELEASE = "https://github.com/cloudflare/cloudflared/releases/latest/download"
+
+
+def load_config(path: Path) -> dict:
+    """Import a config.py and return its sections keyed like the rest of this script expects."""
+    spec = importlib.util.spec_from_file_location("deploy_config", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {
+        "model": module.MODEL,
+        "server": module.SERVER,
+        "tunnel": getattr(module, "TUNNEL", {}),
+        "env": getattr(module, "ENV", {}),
+        "llama": getattr(module, "LLAMA", {}),
+    }
 
 
 def to_flags(params: dict) -> list[str]:
@@ -167,12 +181,12 @@ def stop(proc: subprocess.Popen | None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=ROOT / "config.toml", type=Path)
+    parser.add_argument("--config", default=ROOT / "config.py", type=Path)
     parser.add_argument("--no-tunnel", action="store_true", help="serve locally only")
     parser.add_argument("--dry-run", action="store_true", help="print the llama-server command and exit")
     args = parser.parse_args()
 
-    cfg = tomllib.loads(args.config.read_text(encoding="utf-8"))
+    cfg = load_config(args.config)
     server = cfg["server"]
     api_key = None
     if server.get("require_api_key", True):
@@ -215,8 +229,8 @@ def main() -> None:
             f"-d '{{\"model\": \"{model_name}\", \"messages\": [{{\"role\": \"user\", \"content\": \"Hello\"}}]}}'"
         )
         if public and not cfg["tunnel"].get("token"):
-            print("\nNote: Cloudflare quick tunnels do not support SSE, so streaming may stall."
-                  " Set [tunnel] token + hostname for a named tunnel.")
+            print("\nNote: quick tunnel URL changes every run and has no uptime guarantee."
+                  " Set TUNNEL token + hostname in config.py for a fixed URL.")
         print("=" * 70 + "\n")
 
         print(f"[llama] {shlex.join(cmd)}")
