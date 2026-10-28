@@ -128,11 +128,21 @@ LLAMA = {
     "threads-batch": 16,
     "load-mode": "auto",  # none / auto / mmap / mlock / mmap+mlock / dio
 
-    # --- Chat / tool calling ---
+    # --- Chat / tool calling / agentic clients (OpenCode) ---
     "jinja": True,  # use the GGUF's chat template (needed for tool calls)
     "no-mmproj": True,  # skip the vision encoder (saves ~0.9 GB); False to accept images
-    # Bound thinking so non-streamed replies finish before Cloudflare's 125 s timeout.
-    # "reasoning-budget": 8192,
+    # Return thinking in a separate `reasoning_content` field (DeepSeek wire format) instead
+    # of leaving <think> tags inside `content`. OpenCode reads exactly that field (it is set
+    # as compatibility.reasoningField in opencode.jsonc), while plain `content` stays clean.
+    "reasoning-format": "deepseek",
+    # Optional thinking cap. OpenCode streams, so Cloudflare's 125 s non-streaming limit
+    # does not apply, but unbounded thinking on a huge prompt can still make one agent
+    # turn eat a lot of context/time. Uncomment to bound it.
+    # "reasoning-budget": 12288,
+    # Optional: reuse shifted KV when the prompt prefix changes slightly (agent edits,
+    # subagent switches). Disabled by default to keep the known-good baseline; many agent
+    # workloads save a chunk of prefill thanks to it.
+    # "cache-reuse": 256,
 
     # --- Default sampling (Qwen3.8 card, thinking mode; clients can override per request) ---
     # Non-thinking: temp 0.7, top-p 0.8, top-k 20, presence-penalty 1.5

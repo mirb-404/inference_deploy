@@ -2,6 +2,7 @@
 
 import argparse
 import importlib.util
+import json
 import os
 import platform
 import re
@@ -179,6 +180,77 @@ def stop(proc: subprocess.Popen | None) -> None:
         proc.kill()
 
 
+def load_or_create_api_key(server: dict) -> str | None:
+    """Use a config key if set; otherwise a stable one saved in .api_key across runs."""
+    if not server.get("require_api_key", True):
+        return None
+    if server.get("api_key"):
+        return server["api_key"]
+    path = ROOT / ".api_key"
+    if path.exists():
+        key = path.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+    key = secrets.token_urlsafe(32)
+    path.write_text(key + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass  # best effort on platforms without posix permissions
+    return key
+
+
+def opencode_config(cfg: dict, base_url: str, api_key: str | None) -> dict:
+    """Build a ready-to-paste OpenCode provider config for this endpoint.
+
+    Everything OpenCode needs is set as literals here: endpoint URL, credentials,
+    capabilities (tools + reasoning), context/output limits and the per-request
+    no-think variant. Mirrors config.py: jinja -> tools, deepseek reasoning ->
+    compatibility.reasoningField, alias -> model ID, ctx-size -> limit.context,
+    no-mmproj -> text-only input.
+    """
+    model_name = cfg["model"].get("alias") or "default"
+    ctx = cfg["llama"].get("ctx-size")
+    if not isinstance(ctx, int) or ctx <= 0:
+        ctx = 262144  # model-native window; adjust if ctx-size is left unset
+    settings = {"baseURL": f"{base_url}/v1"}
+    settings["apiKey"] = api_key or "none"  # package needs a string even with auth off
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "model": f"llamacpp/{model_name}",
+        "providers": {
+            "llamacpp": {
+                "name": f"Local llama.cpp ({model_name})",
+                "package": "@opencode/ai/providers/openai-compatible",
+                "settings": settings,
+                "models": {
+                    model_name: {
+                        "name": f"{model_name} (llama.cpp)",
+                        "capabilities": {
+                            "tools": True,
+                            "reasoning": {"supported": True},
+                            "input": ["text"],  # no-mmproj: no image input
+                            "output": ["text"],
+                        },
+                        "limit": {"context": ctx, "output": 32768},
+                        "cost": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0},
+                        "compatibility": {
+                            "reasoningField": "reasoning_content",
+                            "maxTokensField": "max_tokens",
+                        },
+                        "variants": [
+                            {
+                                "id": "fast",
+                                "body": {"chat_template_kwargs": {"enable_thinking": False}},
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=ROOT / "config.py", type=Path)
@@ -188,9 +260,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     server = cfg["server"]
-    api_key = None
-    if server.get("require_api_key", True):
-        api_key = server.get("api_key") or secrets.token_urlsafe(32)
+    api_key = load_or_create_api_key(server)
 
     cmd = build_command(cfg, api_key)
     if args.dry_run:
@@ -223,7 +293,24 @@ def main() -> None:
         print(f"Local   base URL : {base}/v1")
         print(f"Model            : {model_name}")
         print(f"API key          : {api_key or '(none)'}")
+
+        # OpenCode hookup: config (opencode.jsonc) reads LLAMACPP_BASE_URL/LLAMACPP_API_KEY,
+        # so a restart with a fresh quick-tunnel URL only means re-setting these variables.
+        oc_setx = f'setx LLAMACPP_BASE_URL "{shown}/v1"'
+        oc_export = f'export LLAMACPP_BASE_URL="{shown}/v1"'
+        oc_key_note = "(set LLAMACPP_API_KEY too)" if not api_key else ""
+        if api_key:
+            oc_setx += f'; setx LLAMACPP_API_KEY "{api_key}"'
+            oc_export += f' LLAMACPP_API_KEY="{api_key}"'
+        print("\nOpenCode (template: ./opencode.jsonc -> ~/.config/opencode/ ):")
+        print(f"  PowerShell: {oc_setx}   then: opencode service restart")
+        print(f"  bash:       {oc_export}  {oc_key_note}   then: opencode service restart")
+        print(f"  pick the model with /models -> llamacpp/{model_name}"
+              f"  (#fast variant = thinking off)")
+        print(f"  run smoke test: opencode run --model llamacpp/{model_name} \"say hi\"")
+
         print("\nTest (works once the model is loaded; returns 503 while loading):")
+
         print(
             f'curl {shown}/v1/chat/completions -H "Content-Type: application/json"{auth} '
             f"-d '{{\"model\": \"{model_name}\", \"messages\": [{{\"role\": \"user\", \"content\": \"Hello\"}}]}}'"
