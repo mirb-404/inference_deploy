@@ -1,4 +1,5 @@
-"""Start llama-server from config.py and expose it through a Cloudflare quick tunnel."""
+"""Start llama-server from config.py, expose it through a Cloudflare tunnel, and
+print a ready-to-paste prompt that registers the model in OpenCode."""
 
 import argparse
 import importlib.util
@@ -251,6 +252,33 @@ def opencode_config(cfg: dict, base_url: str, api_key: str | None) -> dict:
     }
 
 
+def opencode_prompt(cfg: dict, base_url: str, api_key: str | None) -> str:
+    """Build the copy-paste prompt that tells OpenCode to register this endpoint.
+
+    The prompt carries the endpoint URL, key and every fact OpenCode needs (model
+    ID, context window, capabilities, no-think variant); OpenCode's add-opencode-model
+    skill fills in the rest and verifies the result end to end.
+    """
+    model_name = cfg["model"].get("alias") or "default"
+    ctx = cfg["llama"].get("ctx-size")
+    if not isinstance(ctx, int) or ctx <= 0:
+        ctx = 262144
+    no_mmproj = cfg["llama"].get("no-mmproj", True)
+    inputs = "text only" if no_mmproj else "text and images"
+    key = api_key or "(auth disabled - use any placeholder)"
+    return f"""Use the add-opencode-model skill to add this self-hosted OpenAI-compatible model to my OpenCode:
+
+- Endpoint (OpenAI-compatible base URL): {base_url}/v1
+- API key: {key}
+- Model ID (send exactly this as "model"): {model_name}
+- Context window: {ctx} tokens
+- Capabilities: tool calling, reasoning (thinking arrives in a "reasoning_content" field, keep "content" clean), {inputs}
+- No-think variant: send chat_template_kwargs = {{"enable_thinking": false}} as the "#fast" variant
+
+Register it in my global OpenCode config (top-level "providers" key), then verify
+endpoint reachability, the wire format and the model catalog as the skill describes."""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=ROOT / "config.py", type=Path)
@@ -294,20 +322,12 @@ def main() -> None:
         print(f"Model            : {model_name}")
         print(f"API key          : {api_key or '(none)'}")
 
-        # OpenCode hookup: config (opencode.jsonc) reads LLAMACPP_BASE_URL/LLAMACPP_API_KEY,
-        # so a restart with a fresh quick-tunnel URL only means re-setting these variables.
-        oc_setx = f'setx LLAMACPP_BASE_URL "{shown}/v1"'
-        oc_export = f'export LLAMACPP_BASE_URL="{shown}/v1"'
-        oc_key_note = "(set LLAMACPP_API_KEY too)" if not api_key else ""
-        if api_key:
-            oc_setx += f'; setx LLAMACPP_API_KEY "{api_key}"'
-            oc_export += f' LLAMACPP_API_KEY="{api_key}"'
-        print("\nOpenCode (template: ./opencode.jsonc -> ~/.config/opencode/ ):")
-        print(f"  PowerShell: {oc_setx}   then: opencode service restart")
-        print(f"  bash:       {oc_export}  {oc_key_note}   then: opencode service restart")
-        print(f"  pick the model with /models -> llamacpp/{model_name}"
+        print("\nOpenCode - copy this prompt and paste it into a new OpenCode session:")
+        print("-" * 70)
+        print(opencode_prompt(cfg, shown, api_key))
+        print("-" * 70)
+        print(f"then pick the model in the TUI: /models -> llamacpp/{model_name}"
               f"  (#fast variant = thinking off)")
-        print(f"  run smoke test: opencode run --model llamacpp/{model_name} \"say hi\"")
 
         print("\nTest (works once the model is loaded; returns 503 while loading):")
 

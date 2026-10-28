@@ -90,7 +90,7 @@ LLAMA = {
     # VRAM: +1.4 GB. Output quality is unchanged in principle (drafts are verified by the main model).
     # Gains vanish by ~4 concurrent streams; set spec-type = False when running many agents.
     "spec-type": "draft-mtp",
-    "spec-draft-n-max": 3,  # 2-4 is the sweet spot; 5+ gets slower
+    "spec-draft-n-max": 2,  # 2 is the sweet spot for Qwen3.8 (high draft acceptance); 3+ costs a verification pass per draft
 
     # --- GPU ---
     "n-gpu-layers": 999,  # all layers on the H200
@@ -139,10 +139,11 @@ LLAMA = {
     # does not apply, but unbounded thinking on a huge prompt can still make one agent
     # turn eat a lot of context/time. Uncomment to bound it.
     # "reasoning-budget": 12288,
-    # Optional: reuse shifted KV when the prompt prefix changes slightly (agent edits,
-    # subagent switches). Disabled by default to keep the known-good baseline; many agent
-    # workloads save a chunk of prefill thanks to it.
-    # "cache-reuse": 256,
+    # Reuse shifted KV when the prompt prefix changes slightly (agent edits, subagent
+    # switches) - saves prefill, but the slot's KV cache then accumulates across requests
+    # and slows every decode step. 0 = keep one clean slot (fresh prefill per request,
+    # ~1900 tok/s, so a 12K prompt is ~6.5 s). 256 = on, useful if you run several agents.
+    "cache-reuse": 0,
 
     # --- Default sampling (Qwen3.8 card, thinking mode; clients can override per request) ---
     # Non-thinking: temp 0.7, top-p 0.8, top-k 20, presence-penalty 1.5
