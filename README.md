@@ -7,15 +7,10 @@ The server is exposed through a free Cloudflare quick tunnel as an OpenAI-compat
 ## Setup (Linux GPU box)
 
 ```bash
-# 1. Build llama-server with CUDA (needs git, cmake, CUDA toolkit)
-bash scripts/build_llamacpp.sh            # -> ~/llama.cpp/build/bin/llama-server
-
-# 2. Point config.toml at it
-#    [server] binary = "/root/llama.cpp/build/bin/llama-server"
-
-# 3. Python env
-uv sync
+uv run serve.py
 ```
+
+If `llama-server` is not on PATH, the first run clones and builds llama.cpp with CUDA into `./llama.cpp` (~10-20 min). It needs `git`, `g++` and the CUDA toolkit (`nvcc`); `uv sync` supplies `cmake` and `ninja`. To use an existing build instead, set `[server] binary`.
 
 ## Run
 

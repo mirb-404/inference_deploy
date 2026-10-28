@@ -38,9 +38,11 @@ path = ""
 alias = "qwen3.8-27b"
 
 [server]
-# llama-server binary: name on PATH or full path, e.g. "/root/llama.cpp/build/bin/llama-server".
-# Needs a build >= b10450 (older CUDA builds produce garbage on Qwen3.8).
+# llama-server binary: name on PATH or full path. If not found, ./llama.cpp/build/bin/llama-server
+# is used; with auto_build = true it is cloned + built with CUDA on first run (~10-20 min,
+# needs git, g++, nvcc; ~2 GB disk). Needs a build >= b10450 (older builds garble Qwen3.8).
 binary = "llama-server"
+auto_build = true
 host = "127.0.0.1"
 port = 8080
 # The tunnel makes the server public, so requests need "Authorization: Bearer <key>".

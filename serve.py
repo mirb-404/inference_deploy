@@ -54,6 +54,25 @@ def build_command(cfg: dict, api_key: str | None) -> list[str]:
     return cmd + to_flags(cfg.get("llama", {}))
 
 
+def resolve_llama_binary(server: dict) -> str:
+    """Use the configured binary, else the repo-local build, building it first if allowed."""
+    found = shutil.which(server["binary"])
+    if found:
+        return found
+    local = ROOT / "llama.cpp" / "build" / "bin" / "llama-server"
+    if local.exists():
+        return str(local)
+    if not server.get("auto_build", True):
+        sys.exit(f"llama-server binary not found: {server['binary']!r}. Set [server].binary or auto_build = true")
+    if platform.system() != "Linux":
+        sys.exit("auto_build supports Linux only. Build llama.cpp yourself and set [server].binary")
+    print("[build] llama-server not found; building llama.cpp with CUDA (first run only, ~10-20 min) ...")
+    result = subprocess.run(["bash", str(ROOT / "scripts" / "build_llamacpp.sh"), str(ROOT / "llama.cpp")])
+    if result.returncode != 0 or not local.exists():
+        sys.exit("[build] llama.cpp build failed; see messages above")
+    return str(local)
+
+
 def local_url(server: dict) -> str:
     host = server["host"]
     if host in ("0.0.0.0", "::"):
@@ -160,11 +179,10 @@ def main() -> None:
         api_key = server.get("api_key") or secrets.token_urlsafe(32)
 
     cmd = build_command(cfg, api_key)
-    if not args.dry_run and shutil.which(cmd[0]) is None:
-        sys.exit(f"llama-server binary not found: {cmd[0]!r}. Set [server].binary in {args.config}")
     if args.dry_run:
         print(shlex.join(cmd))
         return
+    cmd[0] = resolve_llama_binary(server)
 
     env = os.environ | {k: str(v) for k, v in cfg.get("env", {}).items()}
     base = local_url(server)
