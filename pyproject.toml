@@ -1,0 +1,7 @@
+[project]
+name = "inference-deploy"
+version = "0.1.0"
+description = "llama.cpp server for Qwen3.8-27B on an NVIDIA H200, exposed through a Cloudflare quick tunnel"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
